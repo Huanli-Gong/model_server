@@ -79,8 +79,12 @@ absl::Status GenAiServable::parseRequest(std::shared_ptr<GenAiServableExecutionC
             lastStreamerCallbackOutput = text;
             return ov::genai::StreamingStatus::RUNNING;
         };
-
-        executionContext->textStreamer = std::make_shared<ov::genai::TextStreamer>(getProperties()->tokenizer, callback);
+        ov::AnyMap streamerConfig;
+        if (executionContext->apiHandler->getOutputParser() != nullptr &&
+            (executionContext->apiHandler->getOutputParser()->requiresStreamingWithSpecialTokens())) {
+            streamerConfig.insert(ov::genai::skip_special_tokens(false));
+        }
+        executionContext->textStreamer = std::make_shared<ov::genai::TextStreamer>(getProperties()->tokenizer, callback, streamerConfig);
     }
     executionContext->generationConfigBuilder = std::make_shared<GenerationConfigBuilder>(getProperties()->baseGenerationConfig, getProperties()->toolParserName, getProperties()->enableToolGuidedGeneration);
     executionContext->generationConfigBuilder->parseConfigFromRequest(executionContext->apiHandler->getRequest());
@@ -91,13 +95,6 @@ absl::Status GenAiServable::parseRequest(std::shared_ptr<GenAiServableExecutionC
         executionContext->generationConfigBuilder->unsetStructuredOutputConfig();
     }
 
-#if (PYTHON_DISABLE == 0)
-    // Due to issues in GGUF models EOS token generation, we add EOS tag as a stop string to properly handle end of generation
-    if (this->getProperties()->ggufEosToken.has_value()) {
-        SPDLOG_LOGGER_TRACE(llm_calculator_logger, "Adding GGUF model stop string: [{}]", this->getProperties()->ggufEosToken.value());
-        executionContext->generationConfigBuilder->addStopString(this->getProperties()->ggufEosToken.value());
-    }
-#endif
     return absl::OkStatus();
 }
 
